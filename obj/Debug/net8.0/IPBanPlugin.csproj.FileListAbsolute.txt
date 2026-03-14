@@ -1,0 +1,12 @@
+c:\Users\vindict6\Desktop\ipban\bin\Debug\net8.0\IPBanPlugin.deps.json
+C:\Users\vindict6\Desktop\ipban\bin\Debug\net8.0\IPBanPlugin.dll
+C:\Users\vindict6\Desktop\ipban\bin\Debug\net8.0\IPBanPlugin.pdb
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.csproj.AssemblyReference.cache
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.AssemblyInfoInputs.cache
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.AssemblyInfo.cs
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.csproj.CoreCompileInputs.cache
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.dll
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\refint\IPBanPlugin.dll
+C:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\IPBanPlugin.pdb
+c:\Users\vindict6\Desktop\ipban\obj\Debug\net8.0\ref\IPBanPlugin.dll
