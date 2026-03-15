@@ -59,13 +59,16 @@ internal sealed class IpAccountDatabase
 
 public sealed partial class IPBanPlugin : BasePlugin
 {
-    public override string ModuleName => "IP Ban Plugin";
-    public override string ModuleVersion => "2.0.0";
-    public override string ModuleAuthor => "IPBan";
+    public override string ModuleName => "IPBanPlugin";
+    public override string ModuleVersion => "2.0.1";
+    public override string ModuleAuthor => "VinSix";
     public override string ModuleDescription => "Manages IP bans via addip/removeip/listip with banned_ip.cfg sync.";
 
     private const string ColorDefault = "\x01";
+    private const string ColorRed = "\x02";
     private const string ColorGreen = "\x04";
+    private const string ColorYellow = "\x09";
+    private const string ColorBlue = "\x0B";
 
     private readonly List<IPBanEntry> _bans = new();
     private readonly object _lock = new();
@@ -457,12 +460,12 @@ public sealed partial class IPBanPlugin : BasePlugin
     private void PrintHelp(CCSPlayerController? player)
     {
         ReplyToAdmin(player, $" {ColorDefault}---{ColorGreen} IPBan Commands {ColorDefault}---");
-        ReplyToAdmin(player, $" {ColorGreen}!addip <time> <ip> [reason]{ColorDefault} - Ban an IP (or no args for player menu)");
-        ReplyToAdmin(player, $" {ColorGreen}!banip / !ipban{ColorDefault} - Aliases for !addip");
-        ReplyToAdmin(player, $" {ColorGreen}!removeip <ip>{ColorDefault} - Unban an IP address");
-        ReplyToAdmin(player, $" {ColorGreen}!listip{ColorDefault} - List all active IP bans");
-        ReplyToAdmin(player, $" {ColorGreen}!writeip{ColorDefault} - Save ban list to banned_ip.cfg");
-        ReplyToAdmin(player, $" {ColorGreen}!ipbanhelp{ColorDefault} - Show this help message");
+        ReplyToAdmin(player, $" {ColorGreen}addip <time> <ip> [\"reason\"]{ColorDefault} - Ban an IP (or no args for player menu)");
+        ReplyToAdmin(player, $" {ColorGreen}banip / ipban{ColorDefault} - Aliases for addip");
+        ReplyToAdmin(player, $" {ColorGreen}removeip <ip>{ColorDefault} - Unban an IP address");
+        ReplyToAdmin(player, $" {ColorGreen}listip{ColorDefault} - List all active IP bans");
+        ReplyToAdmin(player, $" {ColorGreen}writeip{ColorDefault} - Save ban list to banned_ip.cfg");
+        ReplyToAdmin(player, $" {ColorGreen}ipbanhelp{ColorDefault} - Show this help message");
         ReplyToAdmin(player, $" {ColorDefault}Time examples: {ColorGreen}0{ColorDefault} (permanent), {ColorGreen}60{ColorDefault} (60 min), {ColorGreen}1 day{ColorDefault}, {ColorGreen}2 weeks{ColorDefault}, {ColorGreen}6 months{ColorDefault}");
     }
 
@@ -650,15 +653,157 @@ public sealed partial class IPBanPlugin : BasePlugin
         if (_menuStates.ContainsKey(player.Slot))
             return HandleMenuInput(player, cleanMsg);
 
-        // Show help for admins typing !help or /help
-        bool isCommand = msg.StartsWith('!') || msg.StartsWith('/');
-        if (isCommand && cleanMsg.Equals("help", StringComparison.OrdinalIgnoreCase))
+        // Route admin chat commands (with or without ! / prefix)
+        return DispatchChatCommand(player, cleanMsg);
+    }
+
+    /// <summary>Parse and dispatch admin commands typed in chat. Accepts with or without ! prefix.</summary>
+    private HookResult DispatchChatCommand(CCSPlayerController player, string text)
+    {
+        // Split into command + rest, respecting that the command is always the first word
+        int spaceIdx = text.IndexOf(' ');
+        string cmd = spaceIdx < 0 ? text : text[..spaceIdx];
+        string args = spaceIdx < 0 ? "" : text[(spaceIdx + 1)..].Trim();
+
+        switch (cmd.ToLowerInvariant())
         {
-            Server.NextFrame(() => PrintHelp(player));
-            return HookResult.Continue;
+            case "addip" or "banip" or "ipban":
+                Server.NextFrame(() => HandleChatBan(player, args));
+                return HookResult.Handled;
+
+            case "removeip":
+                Server.NextFrame(() =>
+                {
+                    string ip = args.Trim();
+                    if (string.IsNullOrEmpty(ip) || !IsValidIpAddress(ip))
+                    {
+                        player.PrintToChat($" {ColorDefault}[IPBan] Usage: removeip <ip>");
+                        return;
+                    }
+                    bool removed;
+                    lock (_lock) { removed = _bans.RemoveAll(b => b.IpAddress == ip) > 0; }
+                    Server.ExecuteCommand($"removeip {ip}");
+                    WriteBansToFile();
+                    ReplyToAdmin(player, removed
+                        ? $"{ColorGreen}[IPBan]{ColorDefault} Removed ban for {ip}."
+                        : $"{ColorDefault}[IPBan] No ban found for {ip}.");
+                });
+                return HookResult.Handled;
+
+            case "listip":
+                Server.NextFrame(() => OnListIpCommand(player, null!));
+                return HookResult.Handled;
+
+            case "writeip":
+                Server.NextFrame(() => OnWriteIpCommand(player, null!));
+                return HookResult.Handled;
+
+            case "ipbanhelp" or "help":
+                Server.NextFrame(() => PrintHelp(player));
+                return HookResult.Continue;
+
+            default:
+                return HookResult.Continue;
+        }
+    }
+
+    /// <summary>Handle addip/banip/ipban from raw chat text, supporting quoted reasons.</summary>
+    private void HandleChatBan(CCSPlayerController player, string args)
+    {
+        if (string.IsNullOrWhiteSpace(args))
+        {
+            ShowPlayerMenu(player);
+            return;
         }
 
-        return HookResult.Continue;
+        // Tokenize respecting quoted strings
+        var tokens = TokenizeChatArgs(args);
+
+        // Find the IP token
+        string ip = "";
+        int ipTokenIndex = -1;
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            if (IsValidIpAddress(tokens[i]))
+            {
+                ip = tokens[i];
+                ipTokenIndex = i;
+                break;
+            }
+        }
+
+        if (ipTokenIndex < 0)
+        {
+            player.PrintToChat($" {ColorDefault}[IPBan] Usage: addip <time> <ip> [\"reason\"]");
+            return;
+        }
+
+        // Time is everything before the IP
+        string timeStr = string.Join(" ", tokens.Take(ipTokenIndex));
+        int minutes = ParseTimeToMinutes(timeStr);
+        if (minutes < 0)
+        {
+            player.PrintToChat($" {ColorDefault}[IPBan] Invalid time: {timeStr}. Examples: 0, 60, 1 day, 2 weeks, 6 months");
+            return;
+        }
+
+        // Reason is everything after the IP (already unquoted by tokenizer)
+        string reason = string.Join(" ", tokens.Skip(ipTokenIndex + 1));
+        string adminName = player.PlayerName;
+
+        // Async VPN check before banning
+        _ = Task.Run(async () =>
+        {
+            if (_unloaded) return;
+            string vpnTag = await CheckVpnAsync(ip);
+            bool isVpn = vpnTag != "[NO VPN]";
+
+            Server.NextFrame(() =>
+            {
+                if (_unloaded) return;
+                if (isVpn)
+                {
+                    _vpnConfirmStates[player.Slot] = new VpnConfirmState { Ip = ip, Minutes = minutes, Reason = reason };
+                    player.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
+                    player.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
+                }
+                else
+                {
+                    ExecuteBan(player, ip, minutes, reason, adminName);
+                }
+            });
+        });
+    }
+
+    /// <summary>Split a string into tokens, treating quoted sections as single tokens and stripping the quotes.</summary>
+    private static List<string> TokenizeChatArgs(string input)
+    {
+        var tokens = new List<string>();
+        int i = 0;
+        while (i < input.Length)
+        {
+            // Skip whitespace
+            while (i < input.Length && input[i] == ' ') i++;
+            if (i >= input.Length) break;
+
+            if (input[i] == '"')
+            {
+                // Quoted token — find closing quote
+                i++; // skip opening quote
+                int start = i;
+                while (i < input.Length && input[i] != '"') i++;
+                tokens.Add(input[start..i]);
+                if (i < input.Length) i++; // skip closing quote
+            }
+            else
+            {
+                // Unquoted token
+                int start = i;
+                while (i < input.Length && input[i] != ' ') i++;
+                tokens.Add(input[start..i]);
+            }
+        }
+        return tokens;
     }
 
     // ═══════════════════════════════════════════════════
@@ -716,11 +861,14 @@ public sealed partial class IPBanPlugin : BasePlugin
                 Server.NextFrame(() =>
                 {
                     if (_unloaded) return;
-                    NotifyAdmins($"{ColorGreen}[IPBan]{ColorDefault} Connected: {playerName} | {steamId} | {ip} | {vpnTag}");
+                    string vpnColor = isVpn ? ColorRed : ColorYellow;
+                    string vpnLabel = isVpn ? vpnTag : "[No VPN]";
+                    NotifyAdmins($" {ColorGreen}{playerName}{ColorDefault} | {steamId} | {ip} | {vpnColor}{vpnLabel}{ColorDefault}");
                     if (associated.Count > 0)
                     {
-                        string names = string.Join(", ", associated);
-                        NotifyAdmins($"{ColorGreen}[IPBan]{ColorDefault}  Associated accounts: [{names}]");
+                        var coloredNames = associated.Select(n => $"{ColorBlue}{n}{ColorDefault}");
+                        string nameList = string.Join($"{ColorDefault}, ", coloredNames);
+                        NotifyAdmins($" [{nameList}]");
                     }
                 });
             });

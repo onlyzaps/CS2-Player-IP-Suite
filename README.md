@@ -5,7 +5,7 @@ A [CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp) plugin 
 ## Features
 
 - **IP Ban Management** — Add, remove, list, and persist IP bans with full metadata.
-- **Interactive Player Menu** — No-args `!addip` opens a numbered chat menu to select a connected player, enter a duration, and confirm.
+- **Interactive Player Menu** — No-args `addip` opens a numbered chat menu to select a connected player, enter a duration, and confirm.
 - **VPN / Datacenter Detection** — Instant local CIDR lookup against 200+ datacenter ranges (OVH, AWS, GCP, Azure, DigitalOcean, Vultr, Hetzner, etc.) plus async [ip-api.com](http://ip-api.com) queries for proxy/hosting detection.
 - **VPN Ban Confirmation** — If a target IP is detected as VPN/datacenter, the admin is warned and prompted to confirm before banning.
 - **Account Association Database** — Tracks SteamID ↔ IP relationships in `ip_accounts.json`. Uses BFS flood-fill for transitive association lookup (if A shared an IP with B, and B with C, all three are linked).
@@ -35,18 +35,18 @@ A [CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp) plugin 
 
 ## Admin Commands
 
-All commands require the `@css/ban` permission. Use `!command` or `/command` in chat, or `css_command` in console.
+All commands require the `@css/ban` permission. Commands can be typed in chat with or without a `!` or `/` prefix (e.g. `addip`, `!addip`, `/addip` all work). Console commands use the `css_` prefix.
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `!addip` | `!addip <time> <ip> [reason]` | Ban an IP address. No args opens the interactive player menu. |
-| `!banip` | — | Alias for `!addip`. |
-| `!ipban` | — | Alias for `!addip`. |
-| `!removeip` | `!removeip <ip>` | Remove an IP ban. |
-| `!listip` | `!listip` | List all active IP bans with metadata. |
-| `!writeip` | `!writeip` | Force-write the ban list to `banned_ip.cfg`. |
-| `!ipbanhelp` | `!ipbanhelp` | Show the in-game help message. |
-| `!help` | `!help` | Also shows IPBan help (for admins). |
+| `addip` | `addip <time> <ip> ["reason"]` | Ban an IP address. No args opens the interactive player menu. |
+| `banip` | — | Alias for `addip`. |
+| `ipban` | — | Alias for `addip`. |
+| `removeip` | `removeip <ip>` | Remove an IP ban. |
+| `listip` | `listip` | List all active IP bans with metadata. |
+| `writeip` | `writeip` | Force-write the ban list to `banned_ip.cfg`. |
+| `ipbanhelp` | `ipbanhelp` | Show the in-game help message. |
+| `help` | `help` | Also shows IPBan help (for admins). |
 
 ### Time Format
 
@@ -62,26 +62,27 @@ Supported units: `minutes/min/m`, `hours/hr/h`, `days/d`, `weeks/w`, `months/mo`
 ### Examples
 
 ```
-!addip 0 192.168.1.100 cheating           → Permanent ban with reason
-!addip 1 day 10.0.0.5 griefing            → 1-day ban
-!addip 2 weeks 3 days 172.16.0.1          → 2 weeks 3 days, no reason
-!addip                                     → Opens interactive player menu
-!removeip 192.168.1.100                    → Remove the ban
-!listip                                    → Show all bans
+addip 0 192.168.1.100 "cheating"          → Permanent ban with reason
+addip 1 day 10.0.0.5 "toxic griefing"     → 1-day ban with quoted reason
+addip 2 weeks 3 days 172.16.0.1           → 2 weeks 3 days, no reason
+addip                                      → Opens interactive player menu
+!addip 0 10.0.0.1 "reason here"            → Also works with ! prefix
+removeip 192.168.1.100                     → Remove the ban
+listip                                     → Show all bans
 ```
 
 ## Chat Interfaces
 
-### Help (`!help` / `!ipbanhelp`)
+### Help (`help` / `ipbanhelp`)
 
 ```
  --- IPBan Commands ---
- !addip <time> <ip> [reason] - Ban an IP (or no args for player menu)
- !banip / !ipban - Aliases for !addip
- !removeip <ip> - Unban an IP address
- !listip - List all active IP bans
- !writeip - Save ban list to banned_ip.cfg
- !ipbanhelp - Show this help message
+ addip <time> <ip> ["reason"] - Ban an IP (or no args for player menu)
+ banip / ipban - Aliases for addip
+ removeip <ip> - Unban an IP address
+ listip - List all active IP bans
+ writeip - Save ban list to banned_ip.cfg
+ ipbanhelp - Show this help message
  Time examples: 0 (permanent), 60 (60 min), 1 day, 2 weeks, 6 months
 ```
 
@@ -120,16 +121,18 @@ Type a number to select, or `cancel` to abort.
 
 ### Player Connect Notification (automatic)
 
-When a player connects, all admins see:
+When a player connects, all admins see (with colored text in-game):
 ```
- [IPBan] Connected: PlayerName | 76561198012345678 | 192.168.1.10 | [NO VPN]
- [IPBan]  Associated accounts: [AltAccount1, AltAccount2]
+ PlayerName | 76561198012345678 | 192.168.1.10 | [No VPN]
 ```
+- **Player name** appears in green
+- **VPN status** appears in yellow (`[No VPN]`) or red (`[VPN/DATACENTER]`, `[VPN/PROXY]`)
 
-If the IP matches a VPN/datacenter:
+If the player has associated alt accounts, a second line appears with no prefix:
 ```
- [IPBan] Connected: PlayerName | 76561198012345678 | 45.32.100.50 | [VPN/DATACENTER]
+ [AltAccount1, AltAccount2]
 ```
+Alt account names appear in blue.
 
 ## File Formats
 
