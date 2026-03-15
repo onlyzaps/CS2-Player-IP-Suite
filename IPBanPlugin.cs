@@ -312,7 +312,7 @@ public sealed partial class IPBanPlugin : BasePlugin
         _ = Task.Run(async () =>
         {
             if (_unloaded) return;
-            string vpnTag = await CheckVpnAsync(ip);
+            var (vpnTag, _) = await CheckVpnAsync(ip);
             bool isVpn = vpnTag != "[NO VPN]";
 
             Server.NextFrame(() =>
@@ -557,7 +557,7 @@ public sealed partial class IPBanPlugin : BasePlugin
             _ = Task.Run(async () =>
             {
                 if (_unloaded) return;
-                string vpnTag = await CheckVpnAsync(ip);
+                var (vpnTag, _) = await CheckVpnAsync(ip);
                 bool isVpn = vpnTag != "[NO VPN]";
 
                 Server.NextFrame(() =>
@@ -755,7 +755,7 @@ public sealed partial class IPBanPlugin : BasePlugin
         _ = Task.Run(async () =>
         {
             if (_unloaded) return;
-            string vpnTag = await CheckVpnAsync(ip);
+            var (vpnTag, _) = await CheckVpnAsync(ip);
             bool isVpn = vpnTag != "[NO VPN]";
 
             Server.NextFrame(() =>
@@ -836,19 +836,20 @@ public sealed partial class IPBanPlugin : BasePlugin
                 isBanned = _bans.Any(b => b.IpAddress == ip);
             }
 
+            string playerName = player.PlayerName;
+            ulong steamId = player.SteamID;
+
             if (isBanned)
             {
                 Server.ExecuteCommand($"kickid {player.UserId} \"Your IP address is banned from this server.\"");
+                NotifyAdmins($" {ColorRed}[IPBan] BLOCKED: {playerName} | {steamId} | {ip} (IP is banned){ColorDefault}");
                 return;
             }
-
-            string playerName = player.PlayerName;
-            ulong steamId = player.SteamID;
 
             _ = Task.Run(async () =>
             {
                 if (_unloaded) return;
-                string vpnTag = await CheckVpnAsync(ip);
+                var (vpnTag, geoLocation) = await CheckVpnAsync(ip);
                 bool isVpn = vpnTag != "[NO VPN]";
 
                 // Record IP ↔ SteamID association (skip VPN IPs)
@@ -863,12 +864,22 @@ public sealed partial class IPBanPlugin : BasePlugin
                     if (_unloaded) return;
                     string vpnColor = isVpn ? ColorRed : ColorYellow;
                     string vpnLabel = isVpn ? vpnTag : "[No VPN]";
-                    NotifyAdmins($" {ColorGreen}{playerName}{ColorDefault} | {steamId} | {ip} | {vpnColor}{vpnLabel}{ColorDefault}");
+                    string locPart = !string.IsNullOrEmpty(geoLocation) ? $" | {geoLocation}" : "";
+                    string connectMsg = $" {ColorGreen}{playerName}{ColorDefault} | {steamId} | {ip}{locPart} | {vpnColor}{vpnLabel}{ColorDefault}";
+
+                    if (isVpn)
+                        NotifyAdmins(connectMsg);
+                    else
+                        NotifyAdminsConsole(connectMsg);
+
                     if (associated.Count > 0)
                     {
                         var coloredNames = associated.Select(n => $"{ColorBlue}{n}{ColorDefault}");
                         string nameList = string.Join($"{ColorDefault}, ", coloredNames);
-                        NotifyAdmins($" [{nameList}]");
+                        if (isVpn)
+                            NotifyAdmins($" [{nameList}]");
+                        else
+                            NotifyAdminsConsole($" [{nameList}]");
                     }
                 });
             });
@@ -1037,15 +1048,15 @@ public sealed partial class IPBanPlugin : BasePlugin
     //  VPN / Datacenter Detection
     // ═══════════════════════════════════════════════════
 
-    private async Task<string> CheckVpnAsync(string ip)
+    private async Task<(string VpnTag, string Location)> CheckVpnAsync(string ip)
     {
         if (IsDatacenterIp(ip))
-            return "[VPN/DATACENTER]";
+            return ("[VPN/DATACENTER]", "");
 
         try
         {
-            if (_httpClient == null) return "[NO VPN]";
-            string url = $"http://ip-api.com/json/{Uri.EscapeDataString(ip)}?fields=1196033";
+            if (_httpClient == null) return ("[NO VPN]", "");
+            string url = $"http://ip-api.com/json/{Uri.EscapeDataString(ip)}?fields=status,city,regionName,countryCode,isp,org,proxy,hosting";
             string json = await _httpClient.GetStringAsync(url);
 
             using var doc = JsonDocument.Parse(json);
@@ -1057,8 +1068,33 @@ public sealed partial class IPBanPlugin : BasePlugin
                 bool isProxy = root.TryGetProperty("proxy", out var proxyProp) && proxyProp.GetBoolean();
                 bool isHosting = root.TryGetProperty("hosting", out var hostingProp) && hostingProp.GetBoolean();
 
-                if (isProxy) return "[VPN/PROXY]";
-                if (isHosting) return "[VPN/DATACENTER]";
+                string city = root.TryGetProperty("city", out var c) ? c.GetString() ?? "" : "";
+                string region = root.TryGetProperty("regionName", out var r) ? r.GetString() ?? "" : "";
+                string country = root.TryGetProperty("countryCode", out var cc) ? cc.GetString() ?? "" : "";
+                string isp = root.TryGetProperty("isp", out var ispProp) ? ispProp.GetString() ?? "" : "";
+                string org = root.TryGetProperty("org", out var orgProp) ? orgProp.GetString() ?? "" : "";
+
+                // Build compact location: "City, ST, US"
+                var locParts = new List<string>();
+                if (!string.IsNullOrEmpty(city)) locParts.Add(city);
+                if (!string.IsNullOrEmpty(region)) locParts.Add(region);
+                if (!string.IsNullOrEmpty(country)) locParts.Add(country);
+                string location = string.Join(", ", locParts);
+
+                if (isProxy)
+                {
+                    string provider = !string.IsNullOrEmpty(org) ? org : isp;
+                    string vpnDetail = !string.IsNullOrEmpty(provider) ? $"[VPN/PROXY: {provider}]" : "[VPN/PROXY]";
+                    return (vpnDetail, location);
+                }
+                if (isHosting)
+                {
+                    string provider = !string.IsNullOrEmpty(org) ? org : isp;
+                    string vpnDetail = !string.IsNullOrEmpty(provider) ? $"[DC: {provider}]" : "[VPN/DATACENTER]";
+                    return (vpnDetail, location);
+                }
+
+                return ("[NO VPN]", location);
             }
         }
         catch (Exception ex)
@@ -1066,7 +1102,7 @@ public sealed partial class IPBanPlugin : BasePlugin
             Console.WriteLine($"[IPBan] VPN lookup failed for {ip}: {ex.Message}");
         }
 
-        return "[NO VPN]";
+        return ("[NO VPN]", "");
     }
 
     private static bool IsDatacenterIp(string ipStr)
@@ -1132,6 +1168,21 @@ public sealed partial class IPBanPlugin : BasePlugin
 
             if (AdminManager.PlayerHasPermissions(admin, "@css/ban"))
                 admin.PrintToChat(message);
+        }
+    }
+
+    /// <summary>Send a message to admin consoles only (PrintToConsole), not chat.</summary>
+    private static void NotifyAdminsConsole(string message)
+    {
+        Console.WriteLine(message);
+
+        foreach (var admin in Utilities.GetPlayers())
+        {
+            if (admin == null || !admin.IsValid || admin.IsBot || admin.IsHLTV)
+                continue;
+
+            if (AdminManager.PlayerHasPermissions(admin, "@css/ban"))
+                admin.PrintToConsole(message);
         }
     }
 

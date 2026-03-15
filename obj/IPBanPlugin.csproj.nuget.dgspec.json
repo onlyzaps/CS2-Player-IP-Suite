@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj": {}
+    "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj": {}
   },
   "projects": {
-    "c:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj": {
+    "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
+        "projectUniqueName": "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
         "projectName": "IPBanPlugin",
-        "projectPath": "c:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
+        "projectPath": "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
         "packagesPath": "C:\\Users\\vindict6\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\vindict6\\Desktop\\ipban\\obj\\",
+        "outputPath": "C:\\Users\\vindict6\\Desktop\\ipban\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

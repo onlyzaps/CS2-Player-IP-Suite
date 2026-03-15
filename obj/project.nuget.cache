@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "8Rl9gE7Vqto=",
+  "dgSpecHash": "0a5RexE5V5k=",
   "success": true,
-  "projectFilePath": "c:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
+  "projectFilePath": "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\vindict6\\.nuget\\packages\\counterstrikesharp.api\\1.0.363\\counterstrikesharp.api.1.0.363.nupkg.sha512",
     "C:\\Users\\vindict6\\.nuget\\packages\\mcmaster.netcore.plugins\\1.4.0\\mcmaster.netcore.plugins.1.4.0.nupkg.sha512",
