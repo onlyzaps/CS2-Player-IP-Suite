@@ -74,6 +74,7 @@ public sealed partial class IPBanPlugin : BasePlugin
     private readonly object _lock = new();
     private string _bannedIpCfgPath = string.Empty;
     private string _accountDbPath = string.Empty;
+    private string _blockedLogPath = string.Empty;
     private HttpClient? _httpClient;
     private volatile bool _unloaded;
 
@@ -179,6 +180,7 @@ public sealed partial class IPBanPlugin : BasePlugin
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         _bannedIpCfgPath = Path.Combine(Server.GameDirectory, "csgo", "cfg", "banned_ip.cfg");
         _accountDbPath = Path.Combine(ModuleDirectory, "ip_accounts.json");
+        _blockedLogPath = Path.Combine(ModuleDirectory, "blocked_log.jsonl");
         LoadBansFromFile();
         LoadAccountDatabase();
 
@@ -308,7 +310,7 @@ public sealed partial class IPBanPlugin : BasePlugin
         }
 
         // Async VPN check before banning
-        var adminRef = player;
+        int adminSlot = player.Slot;
         _ = Task.Run(async () =>
         {
             if (_unloaded) return;
@@ -318,15 +320,17 @@ public sealed partial class IPBanPlugin : BasePlugin
             Server.NextFrame(() =>
             {
                 if (_unloaded) return;
+                var admin = Utilities.GetPlayerFromSlot(adminSlot);
+                if (admin == null || !admin.IsValid) return;
                 if (isVpn)
                 {
-                    _vpnConfirmStates[adminRef.Slot] = new VpnConfirmState { Ip = ip, Minutes = minutes, Reason = reason };
-                    adminRef.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
-                    adminRef.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
+                    _vpnConfirmStates[admin.Slot] = new VpnConfirmState { Ip = ip, Minutes = minutes, Reason = reason };
+                    admin.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
+                    admin.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
                 }
                 else
                 {
-                    ExecuteBan(adminRef, ip, minutes, reason, adminName);
+                    ExecuteBan(admin, ip, minutes, reason, adminName);
                 }
             });
         });
@@ -554,6 +558,7 @@ public sealed partial class IPBanPlugin : BasePlugin
             state.PendingMinutes = minutes;
 
             // Async VPN check
+            int menuSlot = player.Slot;
             _ = Task.Run(async () =>
             {
                 if (_unloaded) return;
@@ -563,16 +568,22 @@ public sealed partial class IPBanPlugin : BasePlugin
                 Server.NextFrame(() =>
                 {
                     if (_unloaded) return;
-                    if (isVpn && _menuStates.ContainsKey(player.Slot))
+                    var admin = Utilities.GetPlayerFromSlot(menuSlot);
+                    if (admin == null || !admin.IsValid)
+                    {
+                        _menuStates.Remove(menuSlot);
+                        return;
+                    }
+                    if (isVpn && _menuStates.ContainsKey(menuSlot))
                     {
                         state.AwaitingVpnConfirm = true;
-                        player.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
-                        player.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
+                        admin.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
+                        admin.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
                     }
                     else
                     {
-                        _menuStates.Remove(player.Slot);
-                        ExecuteBan(player, ip, minutes, state.PendingReason, player.PlayerName);
+                        _menuStates.Remove(menuSlot);
+                        ExecuteBan(admin, ip, minutes, state.PendingReason, admin.PlayerName);
                     }
                 });
             });
@@ -752,6 +763,7 @@ public sealed partial class IPBanPlugin : BasePlugin
         string adminName = player.PlayerName;
 
         // Async VPN check before banning
+        int chatBanSlot = player.Slot;
         _ = Task.Run(async () =>
         {
             if (_unloaded) return;
@@ -761,15 +773,17 @@ public sealed partial class IPBanPlugin : BasePlugin
             Server.NextFrame(() =>
             {
                 if (_unloaded) return;
+                var admin = Utilities.GetPlayerFromSlot(chatBanSlot);
+                if (admin == null || !admin.IsValid) return;
                 if (isVpn)
                 {
-                    _vpnConfirmStates[player.Slot] = new VpnConfirmState { Ip = ip, Minutes = minutes, Reason = reason };
-                    player.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
-                    player.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
+                    _vpnConfirmStates[admin.Slot] = new VpnConfirmState { Ip = ip, Minutes = minutes, Reason = reason };
+                    admin.PrintToChat($" {ColorGreen}[IPBan]{ColorDefault} WARNING: {ip} is detected as {vpnTag}.");
+                    admin.PrintToChat($" {ColorDefault}Banning a VPN IP may be ineffective. Proceed? Type {ColorGreen}yes{ColorDefault} or {ColorGreen}no{ColorDefault}.");
                 }
                 else
                 {
-                    ExecuteBan(player, ip, minutes, reason, adminName);
+                    ExecuteBan(admin, ip, minutes, reason, adminName);
                 }
             });
         });
@@ -843,6 +857,7 @@ public sealed partial class IPBanPlugin : BasePlugin
             {
                 Server.ExecuteCommand($"kickid {player.UserId} \"Your IP address is banned from this server.\"");
                 NotifyAdmins($" {ColorRed}[IPBan] BLOCKED: {playerName} | {steamId} | {ip} (IP is banned){ColorDefault}");
+                LogBlockedAttempt(ip, steamId, playerName);
                 return;
             }
 
@@ -1055,9 +1070,10 @@ public sealed partial class IPBanPlugin : BasePlugin
 
         try
         {
-            if (_httpClient == null) return ("[NO VPN]", "");
+            var client = _httpClient;
+            if (client == null) return ("[NO VPN]", "");
             string url = $"http://ip-api.com/json/{Uri.EscapeDataString(ip)}?fields=status,city,regionName,countryCode,isp,org,proxy,hosting";
-            string json = await _httpClient.GetStringAsync(url);
+            string json = await client.GetStringAsync(url);
 
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -1183,6 +1199,34 @@ public sealed partial class IPBanPlugin : BasePlugin
 
             if (AdminManager.PlayerHasPermissions(admin, "@css/ban"))
                 admin.PrintToConsole(message);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  Blocked connection logging
+    // ═══════════════════════════════════════════════════
+
+    private void LogBlockedAttempt(string ip, ulong steamId, string playerName)
+    {
+        try
+        {
+            string? dir = Path.GetDirectoryName(_blockedLogPath);
+            if (dir != null && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            var entry = new
+            {
+                timestamp = DateTime.UtcNow.ToString("o"),
+                ip,
+                steamId = steamId.ToString(),
+                playerName
+            };
+            string line = JsonSerializer.Serialize(entry) + Environment.NewLine;
+            File.AppendAllText(_blockedLogPath, line);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[IPBan] Failed to log blocked attempt: {ex.Message}");
         }
     }
 
