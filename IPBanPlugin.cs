@@ -78,6 +78,11 @@ public sealed partial class IPBanPlugin : BasePlugin
     private HttpClient? _httpClient;
     private volatile bool _unloaded;
 
+    // Pinned delegates to prevent GC from collecting callbacks used by native code
+    private Listeners.OnClientConnected _onConnectedDelegate = null!;
+    private Listeners.OnClientDisconnect _onDisconnectedDelegate = null!;
+    private CommandInfo.CommandListenerCallback _onChatDelegate = null!;
+
     // Interactive menu state per admin slot
     private readonly Dictionary<int, BanMenuState> _menuStates = new();
 
@@ -184,11 +189,15 @@ public sealed partial class IPBanPlugin : BasePlugin
         LoadBansFromFile();
         LoadAccountDatabase();
 
-        RegisterListener<Listeners.OnClientConnected>(OnClientConnected);
-        RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnected);
+        _onConnectedDelegate = OnClientConnected;
+        _onDisconnectedDelegate = OnClientDisconnected;
+        _onChatDelegate = OnPlayerChat;
 
-        AddCommandListener("say", OnPlayerChat, HookMode.Post);
-        AddCommandListener("say_team", OnPlayerChat, HookMode.Post);
+        RegisterListener<Listeners.OnClientConnected>(_onConnectedDelegate);
+        RegisterListener<Listeners.OnClientDisconnect>(_onDisconnectedDelegate);
+
+        AddCommandListener("say", _onChatDelegate, HookMode.Post);
+        AddCommandListener("say_team", _onChatDelegate, HookMode.Post);
     }
 
     public override void Unload(bool hotReload)
@@ -196,10 +205,10 @@ public sealed partial class IPBanPlugin : BasePlugin
         _unloaded = true;
 
         // Remove listeners
-        RemoveListener<Listeners.OnClientConnected>(OnClientConnected);
-        RemoveListener<Listeners.OnClientDisconnect>(OnClientDisconnected);
-        RemoveCommandListener("say", OnPlayerChat, HookMode.Post);
-        RemoveCommandListener("say_team", OnPlayerChat, HookMode.Post);
+        RemoveListener<Listeners.OnClientConnected>(_onConnectedDelegate);
+        RemoveListener<Listeners.OnClientDisconnect>(_onDisconnectedDelegate);
+        RemoveCommandListener("say", _onChatDelegate, HookMode.Post);
+        RemoveCommandListener("say_team", _onChatDelegate, HookMode.Post);
 
         // Clear collections
         _menuStates.Clear();
