@@ -45,9 +45,9 @@ internal sealed class VpnConfirmState
 
 public sealed partial class IPBanPlugin : BasePlugin
 {
-    public override string ModuleName => "IPBanPlugin";
-    public override string ModuleVersion => "2.0.1";
-    public override string ModuleAuthor => "VinSix";
+    public override string ModuleName => "CS2-IPBanPlugin";
+    public override string ModuleVersion => "2.0.2";
+    public override string ModuleAuthor => "|ZAPS| BONE";
     public override string ModuleDescription => "Manages IP bans via addip/removeip/listip with banned_ip.cfg sync.";
 
     private const string ColorDefault = "\x01";
