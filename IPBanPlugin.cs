@@ -43,20 +43,6 @@ internal sealed class VpnConfirmState
     public string Reason { get; set; } = string.Empty;
 }
 
-// A single account record in the IP association database
-internal sealed class AccountRecord
-{
-    public ulong SteamId { get; set; }
-    public string Name { get; set; } = string.Empty;
-}
-
-// The persistent IP → accounts database
-internal sealed class IpAccountDatabase
-{
-    // IP address → list of accounts that have used that IP (non-VPN only)
-    public Dictionary<string, List<AccountRecord>> IpToAccounts { get; set; } = new();
-}
-
 public sealed partial class IPBanPlugin : BasePlugin
 {
     public override string ModuleName => "IPBanPlugin";
@@ -73,8 +59,8 @@ public sealed partial class IPBanPlugin : BasePlugin
     private readonly List<IPBanEntry> _bans = new();
     private readonly object _lock = new();
     private string _bannedIpCfgPath = string.Empty;
-    private string _accountDbPath = string.Empty;
     private string _blockedLogPath = string.Empty;
+    private string _historyLogPath = string.Empty;
     private HttpClient? _httpClient;
     private volatile bool _unloaded;
 
@@ -88,10 +74,6 @@ public sealed partial class IPBanPlugin : BasePlugin
 
     // Direct-ban VPN confirmation state per admin slot
     private readonly Dictionary<int, VpnConfirmState> _vpnConfirmStates = new();
-
-    // IP ↔ Account association database
-    private IpAccountDatabase _accountDb = new();
-    private readonly object _dbLock = new();
 
     // Known datacenter / VPN provider CIDR ranges (sample of major providers)
     private static readonly (uint Network, uint Mask)[] DatacenterCidrs = BuildCidrTable(new[]
@@ -184,10 +166,9 @@ public sealed partial class IPBanPlugin : BasePlugin
     {
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         _bannedIpCfgPath = Path.Combine(Server.GameDirectory, "csgo", "cfg", "banned_ip.cfg");
-        _accountDbPath = Path.Combine(ModuleDirectory, "ip_accounts.json");
         _blockedLogPath = Path.Combine(ModuleDirectory, "blocked_log.jsonl");
+        _historyLogPath = Path.Combine(ModuleDirectory, "history.json");
         LoadBansFromFile();
-        LoadAccountDatabase();
 
         _onConnectedDelegate = OnClientConnected;
         _onDisconnectedDelegate = OnClientDisconnected;
@@ -214,7 +195,6 @@ public sealed partial class IPBanPlugin : BasePlugin
         _menuStates.Clear();
         _vpnConfirmStates.Clear();
         lock (_lock) { _bans.Clear(); }
-        lock (_dbLock) { _accountDb = new IpAccountDatabase(); }
 
         // Dispose managed resources
         _httpClient?.Dispose();
@@ -876,12 +856,7 @@ public sealed partial class IPBanPlugin : BasePlugin
                 var (vpnTag, geoLocation) = await CheckVpnAsync(ip);
                 bool isVpn = vpnTag != "[NO VPN]";
 
-                // Record IP ↔ SteamID association (skip VPN IPs)
-                if (!isVpn)
-                    RecordAccountAssociation(ip, steamId, playerName);
-
-                // Find associated accounts (through shared non-VPN IPs)
-                var associated = GetAssociatedAccounts(steamId);
+                LogConnectionHistory(ip, steamId, playerName, geoLocation, vpnTag);
 
                 Server.NextFrame(() =>
                 {
@@ -889,22 +864,14 @@ public sealed partial class IPBanPlugin : BasePlugin
                     string vpnColor = isVpn ? ColorRed : ColorYellow;
                     string vpnLabel = isVpn ? vpnTag : "[No VPN]";
                     string locPart = !string.IsNullOrEmpty(geoLocation) ? $" | {geoLocation}" : "";
-                    string connectMsg = $" {ColorGreen}{playerName}{ColorDefault} | {steamId} | {ip}{locPart} | {vpnColor}{vpnLabel}{ColorDefault}";
 
-                    if (isVpn)
-                        NotifyAdmins(connectMsg);
-                    else
-                        NotifyAdminsConsole(connectMsg);
+                    // Chat: no IP address shown
+                    string chatMsg = $" {ColorGreen}{playerName}{ColorDefault} | {steamId}{locPart} | {vpnColor}{vpnLabel}{ColorDefault}";
+                    NotifyAdmins(chatMsg);
 
-                    if (associated.Count > 0)
-                    {
-                        var coloredNames = associated.Select(n => $"{ColorBlue}{n}{ColorDefault}");
-                        string nameList = string.Join($"{ColorDefault}, ", coloredNames);
-                        if (isVpn)
-                            NotifyAdmins($" [{nameList}]");
-                        else
-                            NotifyAdminsConsole($" [{nameList}]");
-                    }
+                    // Console: full info including IP
+                    string consoleMsg = $" {playerName} | {steamId} | {ip}{locPart} | {vpnLabel}";
+                    NotifyAdminsConsole(consoleMsg);
                 });
             });
         });
@@ -914,158 +881,6 @@ public sealed partial class IPBanPlugin : BasePlugin
     {
         _menuStates.Remove(playerSlot);
         _vpnConfirmStates.Remove(playerSlot);
-    }
-
-    // ═══════════════════════════════════════════════════
-    //  IP ↔ Account Association Database
-    // ═══════════════════════════════════════════════════
-
-    private void RecordAccountAssociation(string ip, ulong steamId, string currentName)
-    {
-        lock (_dbLock)
-        {
-            if (!_accountDb.IpToAccounts.TryGetValue(ip, out var accounts))
-            {
-                accounts = new List<AccountRecord>();
-                _accountDb.IpToAccounts[ip] = accounts;
-            }
-
-            var existing = accounts.FirstOrDefault(a => a.SteamId == steamId);
-            if (existing != null)
-            {
-                // Update name in case it changed
-                existing.Name = currentName;
-            }
-            else
-            {
-                accounts.Add(new AccountRecord { SteamId = steamId, Name = currentName });
-            }
-        }
-
-        SaveAccountDatabase();
-    }
-
-    /// <summary>
-    /// Find all accounts associated with a given SteamID.
-    /// Association is transitive through shared non-VPN IPs:
-    /// if A shared IP1 with B, and B shared IP2 with C, then A-B-C are all associated.
-    /// Returns display names of associated accounts (excluding the queried one).
-    /// </summary>
-    private List<string> GetAssociatedAccounts(ulong steamId)
-    {
-        lock (_dbLock)
-        {
-            // BFS/flood-fill: find all SteamIDs reachable through shared IPs
-            var visited = new HashSet<ulong> { steamId };
-            var queue = new Queue<ulong>();
-            queue.Enqueue(steamId);
-
-            // Build a quick reverse map: SteamID → set of IPs
-            var steamToIps = new Dictionary<ulong, List<string>>();
-            foreach (var (ip, accounts) in _accountDb.IpToAccounts)
-            {
-                foreach (var acct in accounts)
-                {
-                    if (!steamToIps.TryGetValue(acct.SteamId, out var ips))
-                    {
-                        ips = new List<string>();
-                        steamToIps[acct.SteamId] = ips;
-                    }
-                    ips.Add(ip);
-                }
-            }
-
-            while (queue.Count > 0)
-            {
-                ulong current = queue.Dequeue();
-                if (!steamToIps.TryGetValue(current, out var currentIps))
-                    continue;
-
-                foreach (string ip in currentIps)
-                {
-                    if (!_accountDb.IpToAccounts.TryGetValue(ip, out var accounts))
-                        continue;
-
-                    foreach (var acct in accounts)
-                    {
-                        if (visited.Add(acct.SteamId))
-                            queue.Enqueue(acct.SteamId);
-                    }
-                }
-            }
-
-            // Collect names of all associated accounts except the queried one
-            var result = new List<string>();
-            foreach (var (_, accounts) in _accountDb.IpToAccounts)
-            {
-                foreach (var acct in accounts)
-                {
-                    if (acct.SteamId != steamId && visited.Contains(acct.SteamId))
-                    {
-                        if (!result.Contains(acct.Name))
-                            result.Add(acct.Name);
-                    }
-                }
-            }
-
-            return result;
-        }
-    }
-
-    private void LoadAccountDatabase()
-    {
-        lock (_dbLock)
-        {
-            _accountDb = new IpAccountDatabase();
-        }
-
-        if (!File.Exists(_accountDbPath))
-            return;
-
-        try
-        {
-            string json = File.ReadAllText(_accountDbPath);
-            var db = JsonSerializer.Deserialize<IpAccountDatabase>(json);
-            if (db != null)
-            {
-                lock (_dbLock)
-                {
-                    _accountDb = db;
-                }
-            }
-
-            int totalAccounts = 0;
-            lock (_dbLock)
-            {
-                foreach (var kv in _accountDb.IpToAccounts)
-                    totalAccounts += kv.Value.Count;
-            }
-            Console.WriteLine($"[IPBan] Loaded account database: {_accountDb.IpToAccounts.Count} IPs, {totalAccounts} records.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[IPBan] Failed to load account database: {ex.Message}");
-        }
-    }
-
-    private void SaveAccountDatabase()
-    {
-        lock (_dbLock)
-        {
-            try
-            {
-                string? dir = Path.GetDirectoryName(_accountDbPath);
-                if (dir != null && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-
-                string json = JsonSerializer.Serialize(_accountDb, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_accountDbPath, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[IPBan] Failed to save account database: {ex.Message}");
-            }
-        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -1214,6 +1029,41 @@ public sealed partial class IPBanPlugin : BasePlugin
     // ═══════════════════════════════════════════════════
     //  Blocked connection logging
     // ═══════════════════════════════════════════════════
+
+    private void LogConnectionHistory(string ip, ulong steamId, string playerName, string location, string vpnTag)
+    {
+        try
+        {
+            string? dir = Path.GetDirectoryName(_historyLogPath);
+            if (dir != null && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            var entry = new
+            {
+                timestamp = DateTime.UtcNow.ToString("o"),
+                ip,
+                steamId = steamId.ToString(),
+                playerName,
+                location,
+                vpnTag
+            };
+            string line = JsonSerializer.Serialize(entry);
+
+            if (File.Exists(_historyLogPath))
+            {
+                string existing = File.ReadAllText(_historyLogPath);
+                File.WriteAllText(_historyLogPath, line + Environment.NewLine + existing);
+            }
+            else
+            {
+                File.WriteAllText(_historyLogPath, line + Environment.NewLine);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[IPBan] Failed to log connection history: {ex.Message}");
+        }
+    }
 
     private void LogBlockedAttempt(string ip, ulong steamId, string playerName)
     {

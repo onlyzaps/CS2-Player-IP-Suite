@@ -2,7 +2,7 @@
   "version": 3,
   "targets": {
     "net8.0": {
-      "CounterStrikeSharp.API/1.0.363": {
+      "CounterStrikeSharp.API/1.0.364": {
         "type": "package",
         "dependencies": {
           "McMaster.NETCore.Plugins": "1.4.0",
@@ -912,14 +912,14 @@
     }
   },
   "libraries": {
-    "CounterStrikeSharp.API/1.0.363": {
-      "sha512": "pV5wgklWUK+re+kYYRyq/Hdld9FCHF7I7dvvvgz0AdVORapbZZggWw3s51QnOU7rgVovbPlue+pHeSlKnJGXCQ==",
+    "CounterStrikeSharp.API/1.0.364": {
+      "sha512": "+1KegkE7HTlNMA20ncpEZFkCJKtE9ZzEOY8yBWNZP7C6eOmpHTJ6sjvYRWMy2MEC4L7b2uAT7zfysjryDmFMhQ==",
       "type": "package",
-      "path": "counterstrikesharp.api/1.0.363",
+      "path": "counterstrikesharp.api/1.0.364",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "counterstrikesharp.api.1.0.363.nupkg.sha512",
+        "counterstrikesharp.api.1.0.364.nupkg.sha512",
         "counterstrikesharp.api.nuspec",
         "lib/net8.0/CounterStrikeSharp.API.dll",
         "lib/net8.0/CounterStrikeSharp.API.runtimeconfig.json",
@@ -2555,23 +2555,23 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\vindict6\\.nuget\\packages\\": {},
+    "C:\\Users\\cturner\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
+      "projectUniqueName": "C:\\Users\\cturner\\Desktop\\CS2-Player-IP-Suite-main\\IPBanPlugin.csproj",
       "projectName": "IPBanPlugin",
-      "projectPath": "C:\\Users\\vindict6\\Desktop\\ipban\\IPBanPlugin.csproj",
-      "packagesPath": "C:\\Users\\vindict6\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\vindict6\\Desktop\\ipban\\obj\\",
+      "projectPath": "C:\\Users\\cturner\\Desktop\\CS2-Player-IP-Suite-main\\IPBanPlugin.csproj",
+      "packagesPath": "C:\\Users\\cturner\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\cturner\\Desktop\\CS2-Player-IP-Suite-main\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\vindict6\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\cturner\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -2580,7 +2580,7 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
-        "c:\\program files\\dotnet\\library-packs": {},
+        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -2626,7 +2626,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "c:\\program files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.304/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
